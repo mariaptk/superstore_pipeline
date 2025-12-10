@@ -1,6 +1,7 @@
 ### Database schema
 
-<img width="914" height="805" alt="image" src="https://github.com/user-attachments/assets/045cb8f4-2fd2-4ecc-b642-a94ec8832904" />
+<img width="1039" height="803" alt="image" src="https://github.com/user-attachments/assets/8e0a0134-b99c-4b43-b5ae-a3134b30fbbe" />
+
 
 ### How to run
 
