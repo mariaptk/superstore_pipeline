@@ -82,3 +82,40 @@ SET
 WHERE load_type = 'INITIAL' AND status = 'STARTED';
 
 COMMIT; -- End transaction
+
+select count(*) from core.order_details;
+
+select count(*) from core.orders;
+
+select * from core.load_audit;
+
+SELECT
+    batch_id,
+    COUNT(*) as count_orders
+FROM core.orders
+GROUP BY batch_id;
+
+SELECT
+    customer_id,
+    customer_number,
+    customer_name
+FROM core.customers
+WHERE customer_name LIKE '%(Updated)%';
+
+SELECT
+    c.customer_name,
+    a.region,
+    a.city,
+    a.valid_from,
+    a.valid_to,
+    a.is_current
+FROM core.addresses a
+JOIN core.customers c ON a.customer_id = c.customer_id
+WHERE c.customer_id IN (
+    -- Находим тех, у кого больше 1 адреса
+    SELECT customer_id
+    FROM core.addresses
+    GROUP BY customer_id
+    HAVING COUNT(*) > 1
+)
+ORDER BY c.customer_name, a.valid_from;
