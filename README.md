@@ -2,7 +2,7 @@
 
 This project implements a Data Pipeline for Superstore data, covering data preparation, initial loading, and incremental updates using SCD (Slowly Changing Dimensions) strategies.
 
-## 📂 Project Structure
+## Project Structure
 
 - **Database/**: SQL scripts for schema creation and data transformation.
 - **notebooks/**: Jupyter notebooks for data preprocessing and splitting.
@@ -11,13 +11,13 @@ This project implements a Data Pipeline for Superstore data, covering data prepa
 
 ---
 
-## 🗄️ Database Schema
+## Database Schema
 
 <img width="100%" alt="Database Schema" src="https://github.com/user-attachments/assets/8e0a0134-b99c-4b43-b5ae-a3134b30fbbe" />
 
 ---
 
-## 🚀 How to run
+## How to run
 
 Follow these steps to set up and populate the database.
 
@@ -42,4 +42,10 @@ Follow these steps to set up and populate the database.
 *   **Import:**
     1. Clear the previous table: `TRUNCATE stage.delta_orders;`
     2. Load `secondary_load.csv` into the `stage.delta_orders` table.
-*   **File:** `Database/03_
+*   **File:** `Database/03_secondary_load.sql`
+*   **Run:** Execute in your SQL client.
+*   **Why:**
+    *   Updates customer names (**SCD1**).
+    *   Tracks address changes (**SCD2**).
+    *   Adds new orders.
+    *   Skips duplicates.
