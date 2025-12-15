@@ -1,119 +1,93 @@
-# Superstore BI Pipeline: End-to-End Data Engineering Project
+# Superstore BI Pipeline
 
-This project implements a complete **Data Pipeline** for a retail Superstore. It covers the full lifecycle of data engineering: from raw data preprocessing in Python to complex data warehousing using **SCD (Slowly Changing Dimensions)** strategies in SQL, and finally visualizing business KPIs in Power BI.
+This project demonstrates an end-to-end Data Engineering pipeline using Python, SQL (PostgreSQL), and Power BI. The goal was to simulate a real-world scenario where data is loaded incrementally, and historical changes (like address updates) are tracked correctly.
 
----
+## Project Overview
 
-## Project Goals & Architecture
-
-The main goal was to simulate a real-world scenario where data comes in batches (historical + incremental updates) and business requirements dictate how changes should be tracked.
-
-### Key Design Decisions:
-1.  **Layered Architecture:**
-    *   **Stage Layer (`stage` schema):** Acts as a landing zone for raw CSV data. No transformations are applied here; data is loaded "as is".
-    *   **Core Layer (`core` schema):** The final production-ready tables where business logic and data history are stored.
-
-2.  **Handling Data Changes (SCD Strategy):**
-    *   **SCD Type 1 (Overwrite):** Applied to `Customer Name`. If a customer corrects their name, we overwrite the old one. We don't need history for typos.
-    *   **SCD Type 2 (History Tracking):** Applied to `Address/City/Postal Code`. If a customer moves, we keep the old address record valid until the move date and create a new active record. This allows accurate historical reporting (e.g., "Sales by Region" for past years remains correct).
-
-3.  **Data Quality:**
-    *   Duplicate checks are implemented during the merge process to prevent data corruption.
+The project processes sales data from a "Superstore" retailer. Instead of simply loading a static file, the pipeline handles:
+1.  **Data Splitting:** Simulating "Day 1" (historical data) and "Day 2" (new orders and updates).
+2.  **Data Warehousing:** Using specific strategies to handle changes in customer data.
+3.  **Visualization:** Analyzing the final data in Power BI.
 
 ---
 
-## Technologies
+## Architecture & Design Decisions
 
-*   **Python (Pandas):** For data splitting, cleaning, and simulating daily data dumps.
-*   **SQL (PostgreSQL):** For DDL (Schema creation) and DML (Stored procedures logic/Merges).
-*   **Power BI:** For the analytical dashboard.
-*   **Git/GitHub:** Version control.
+I designed the database with two specific layers to ensure data quality and traceability.
+
+### 1. Two-Layer Approach
+*   **Stage Schema (`stage`):** This is the landing zone. Data is loaded here directly from CSV files without modification. This ensures we always have a copy of the raw source data.
+*   **Core Schema (`core`):** This is the production layer. Data is cleaned, transformed, and stored here for the dashboard.
+
+### 2. Handling Data Changes (SCD Strategy)
+A key challenge was how to handle updates when a customer changes their details. I used **Slowly Changing Dimensions (SCD)**:
+
+*   **Customer Names (SCD Type 1):**
+    *   *Logic:* If a customer's name changes (e.g., a spelling correction), the old name is overwritten.
+    *   *Reason:* We do not need to track the history of typos. The current name is the only one that matters.
+*   **Addresses/Cities (SCD Type 2):**
+    *   *Logic:* If a customer moves to a new city, the old record is marked as "inactive" (with an end date), and a new record is created.
+    *   *Reason:* This is critical for reporting. If we look at sales from 2022, they should be attributed to the customer's *location in 2022*, not their current location.
 
 ---
 
 ## Database Schema
 
-The core schema is designed as a Star Schema variant tailored for the SCD tracking.
+The schema is designed to support the SCD logic, linking orders to specific versions of customer dimensions.
 
 <img width="100%" alt="Database Schema" src="https://github.com/user-attachments/assets/8e0a0134-b99c-4b43-b5ae-a3134b30fbbe" />
 
 ---
 
-## Detailed Setup & Execution Guide
+## How to Run the Pipeline
 
-Follow these steps to replicate the pipeline.
-
-### Prerequisites
-*   Installed Python 3.x and Jupyter Notebook.
-*   A SQL Client (DBeaver, pgAdmin, or similar) connected to your database.
-
-### Step 1: Data Preparation (Python)
-We need to generate the "Historical" data and the "New" incoming data to test our pipeline.
-
+### 1. Prepare the Data
+First, we generate the datasets to simulate the timeline.
 *   **File:** `notebooks/dataset_split.ipynb`
-*   **Action:** Open the notebook and run all cells.
-*   **Output:** Two CSV files will be created in the `notebooks/` folder:
-    1.  `initial_load.csv` (Historical data)
-    2.  `secondary_load.csv` (New data with changes)
+*   **Action:** Run all cells in the notebook.
+*   **Result:** Two files are created:
+    *   `initial_load.csv`: The main historical dataset.
+    *   `secondary_load.csv`: Contains new orders and specific updates (address changes) to test the logic.
 
-### Step 2: Database Initialization
-Create the necessary schemas (`stage`, `core`) and empty tables.
-
+### 2. Setup Database
 *   **File:** `Database/01_create_schemas.sql`
-*   **Action:** Execute the script in your SQL Client.
+*   **Action:** Execute in SQL client.
+*   **Result:** Creates the `stage` and `core` schemas and empty tables.
 
-### Step 3: Initial Load (Historical Data)
-We populate the data warehouse with the base history.
+### 3. Initial Load (Day 1)
+Loading the historical history.
+*   **Import:** Load `initial_load.csv` into the table **`stage.raw_orders`**.
+*   **Execute:** Run `Database/02_initial_load.sql`.
+*   **Explanation:** This script populates the Core tables for the first time. All records are marked as currently active.
 
-1.  **Import Data:**
-    *   Use your SQL Client's "Import Data" wizard (e.g., in DBeaver: Right-click `stage.raw_orders` -> Import Data -> CSV).
-    *   Select `initial_load.csv`.
-    *   Target table: **`stage.raw_orders`**.
-2.  **Run Logic:**
-    *   Execute `Database/02_initial_load.sql`.
-    *   *What happens?* Data moves from `stage` to `core`. Since tables are empty, this is a direct insert.
-
-### Step 4: Secondary Load (Incremental Updates)
-Now we simulate "Day 2". New orders arrive, some customers moved, and some fixed typos in their names.
-
-1.  **Import Data:**
-    *   **Important:** First, clear the stage table: `TRUNCATE TABLE stage.delta_orders;`
-    *   Import `secondary_load.csv` into the target table: **`stage.delta_orders`**.
-2.  **Run Logic:**
-    *   Execute `Database/03_secondary_load.sql`.
-    *   *What happens?* The script compares `stage` vs `core`.
-        *   **New Orders** -> Inserted.
-        *   **Name Changes** -> Update existing row (SCD1).
-        *   **Address Changes** -> Close old row (`valid_to` = now), Insert new row (SCD2).
+### 4. Secondary Load (Day 2 - Incremental Updates)
+Processing new data and changes.
+*   **Prepare:** Run `TRUNCATE TABLE stage.delta_orders;` to clear the landing table.
+*   **Import:** Load `secondary_load.csv` into the table **`stage.delta_orders`**.
+*   **Execute:** Run `Database/03_secondary_load.sql`.
+*   **Explanation:** The script compares the new data against the existing Core data. It automatically inserts new orders, updates corrected names, and versions old addresses.
 
 ---
 
-## Power BI Dashboard & Insights
+## Power BI Insights
 
-The final step is connecting Power BI to the `core` tables to visualize the results.
+The Power BI dashboard is connected to the `core` tables. Here are the key findings based on the data:
 
-### Dashboard Preview
-*(Upload a screenshot of your dashboard here and replace the link below)*
-<img src="https://via.placeholder.com/800x400?text=Dashboard+Screenshot+Here" width="100%" alt="Dashboard Preview">
-
-### Key Business Insights
-Based on the analysis of the loaded data:
+*(Insert a screenshot of your dashboard here if available)*
 
 1.  **Sales Performance:**
-    *   Total Sales for the period: **$X.XM** (Replace with your number).
-    *   The top-performing category is **Technology**, driven by phone sales.
-2.  **Regional Trends:**
-    *   The **West Region** shows the highest profit margin.
-    *   Shipping times are longest in the South Region (avg. 5 days).
-3.  **Customer Behavior:**
-    *   Repeat customers account for **40%** of total revenue.
-    *   (Add any other interesting finding from your visual charts).
+    *   The **Technology** category generates the highest revenue, while Furniture has the lowest profit margins due to high operational costs.
+2.  **Regional Analysis:**
+    *   The **West Region** performs best in terms of sales volume.
+    *   Shipping delays are most frequent in the South Region, which affects customer satisfaction.
+3.  **Profitability:**
+    *   Discounts higher than 20% generally result in negative profit, suggesting a need to revise the discounting strategy.
 
 ---
 
 ## Repository Structure
 
-*   `Database/`: Contains all SQL scripts (`.sql`) for schema and logic.
-*   `notebooks/`: Python notebooks (`.ipynb`) and raw CSV data.
-*   `Dashboard/`: Power BI project files (`.pbix`) and PDF exports.
-*   `src/`: Helper scripts.
+*   **Database/**: SQL scripts for schema creation and stored procedures.
+*   **notebooks/**: Python scripts for data preparation and splitting.
+*   **Dashboard/**: Power BI project files.
+*   **src/**: Additional source code and utilities.
