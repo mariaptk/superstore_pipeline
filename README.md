@@ -56,7 +56,7 @@ I created SQL Views to transform the normalized schema into a **Star Schema** op
 - `fact_sales`: Implements **Point-in-Time logic**. Joins orders to the address valid at purchase time for historical accuracy
 - `dim_products` & `dim_customers`: Denormalized dimensions for easy filtering and drilling
 
-![Database Schema](database_schema.png)
+<img width="100%" alt="Database Schema" src="https://github.com/user-attachments/assets/8e0a0134-b99c-4b43-b5ae-a3134b30fbbe" />
 
 ## 2. ETL Process & Logic
 
