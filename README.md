@@ -1,4 +1,3 @@
-Вот код для создания структурированного README.md файла:
 
 # Superstore BI Pipeline: ETL & Data Warehousing
 
