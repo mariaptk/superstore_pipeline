@@ -1,93 +1,143 @@
-# Superstore BI Pipeline
+Вот код для создания структурированного README.md файла:
 
-This project demonstrates an end-to-end Data Engineering pipeline using Python, SQL (PostgreSQL), and Power BI. The goal was to simulate a real-world scenario where data is loaded incrementally, and historical changes (like address updates) are tracked correctly.
+# Superstore BI Pipeline: ETL & Data Warehousing
 
 ## Project Overview
 
-The project processes sales data from a "Superstore" retailer. Instead of simply loading a static file, the pipeline handles:
-1.  **Data Splitting:** Simulating "Day 1" (historical data) and "Day 2" (new orders and updates).
-2.  **Data Warehousing:** Using specific strategies to handle changes in customer data.
-3.  **Visualization:** Analyzing the final data in Power BI.
+This project simulates a complete real-world Business Intelligence (BI) pipeline. The goal was to transform a raw, flat dataset (Superstore) into a structured Data Warehouse capable of handling historical changes (SCD) and providing analytical insights via Power BI.
 
----
+The project covers the full data lifecycle:
+1. **Data Engineering:** Data generation, cleaning, and database modeling (Normalization)
+2. **ETL Development:** Building an incremental loading strategy with SCD Type 1 and Type 2 logic
+3. **BI Reporting:** Creating an interactive Power BI dashboard with advanced DAX measures and storytelling
 
-## Architecture & Design Decisions
+## Project Structure
 
-I designed the database with two specific layers to ensure data quality and traceability.
+```
+superstore_bi_pipeline/
+├── dashboard/
+│   └── superstore.pbix           # Power BI Report file
+├── data/
+│   └── raw/                      # Generated CSV files (initial & secondary)
+├── database/
+│   ├── config/                   # DB connection setup
+│   └── scripts/                  # SQL scripts for the pipeline
+│       ├── create_schemas.sql    # DDL: Tables and constraints
+│       ├── create_mart.sql       # Views for Power BI (Star Schema)
+│       ├── load_initial_data.sql # DML: Initial Load logic
+│       └── load_secondary_data.sql # DML: Incremental Load (SCD logic)
+├── notebooks/
+│   └── dataset_split.ipynb       # Python script for data generation
+└── README.md                     # Project documentation
+```
 
-### 1. Two-Layer Approach
-*   **Stage Schema (`stage`):** This is the landing zone. Data is loaded here directly from CSV files without modification. This ensures we always have a copy of the raw source data.
-*   **Core Schema (`core`):** This is the production layer. Data is cleaned, transformed, and stored here for the dashboard.
+## 1. Database Architecture
 
-### 2. Handling Data Changes (SCD Strategy)
-A key challenge was how to handle updates when a customer changes their details. I used **Slowly Changing Dimensions (SCD)**:
+I designed a **3-Layer Architecture** to ensure data integrity, scalability, and query performance.
 
-*   **Customer Names (SCD Type 1):**
-    *   *Logic:* If a customer's name changes (e.g., a spelling correction), the old name is overwritten.
-    *   *Reason:* We do not need to track the history of typos. The current name is the only one that matters.
-*   **Addresses/Cities (SCD Type 2):**
-    *   *Logic:* If a customer moves to a new city, the old record is marked as "inactive" (with an end date), and a new record is created.
-    *   *Reason:* This is critical for reporting. If we look at sales from 2022, they should be attributed to the customer's *location in 2022*, not their current location.
+### Layer 1: Stage
+Contains raw tables (`raw_orders`, `delta_orders`). Data is ingested here directly from CSVs without strict constraints to allow fast loading and initial data profiling.
 
----
+### Layer 2: Core (Normalized Layer)
+This is the central Data Warehouse layer. I applied **Pragmatic Normalization** principles to organize data into logical entities.
 
-## Database Schema
+**Design Decision - Handling History (SCD Type 2):**
+I decided to separate Customers and Addresses into different tables:
+- `core.customers`: Handles SCD Type 1 (e.g., Name corrections). We overwrite the old name because we don't need to track typo history
+- `core.addresses`: Handles SCD Type 2 (History tracking). Uses `valid_from`, `valid_to`, and `is_current` columns
 
-The schema is designed to support the SCD logic, linking orders to specific versions of customer dimensions.
+**Why?** This allows tracking a customer's relocation history without duplicating their static profile data (Name, Segment) in every transaction row.
 
-<img width="100%" alt="Database Schema" src="https://github.com/user-attachments/assets/8e0a0134-b99c-4b43-b5ae-a3134b30fbbe" />
+**Key Features:**
+- **Surrogate Keys:** All tables use internal serial IDs (`customer_id`, `product_id`) instead of relying solely on business keys
+- **Audit Table:** `core.load_audit` tracks execution time, status, and row counts for every ETL load
 
----
+### Layer 3: Mart (Reporting Layer)
+I created SQL Views to transform the normalized schema into a **Star Schema** optimized for Power BI:
+- `fact_sales`: Implements **Point-in-Time logic**. Joins orders to the address valid at purchase time for historical accuracy
+- `dim_products` & `dim_customers`: Denormalized dimensions for easy filtering and drilling
 
-## How to Run the Pipeline
+![Database Schema](database_schema.png)
 
-### 1. Prepare the Data
-First, we generate the datasets to simulate the timeline.
-*   **File:** `notebooks/dataset_split.ipynb`
-*   **Action:** Run all cells in the notebook.
-*   **Result:** Two files are created:
-    *   `initial_load.csv`: The main historical dataset.
-    *   `secondary_load.csv`: Contains new orders and specific updates (address changes) to test the logic.
+## 2. ETL Process & Logic
 
-### 2. Setup Database
-*   **File:** `Database/01_create_schemas.sql`
-*   **Action:** Execute in SQL client.
-*   **Result:** Creates the `stage` and `core` schemas and empty tables.
+The ETL pipeline handles complex data scenarios during the Secondary (Incremental) Load.
 
-### 3. Initial Load (Day 1)
-Loading the historical history.
-*   **Import:** Load `initial_load.csv` into the table **`stage.raw_orders`**.
-*   **Execute:** Run `Database/02_initial_load.sql`.
-*   **Explanation:** This script populates the Core tables for the first time. All records are marked as currently active.
+### Python Data Preparation
+The Jupyter Notebook (`dataset_split.ipynb`) simulates a real production environment by:
+- Standardizing date formats to `YYYY-MM-DD` to prevent SQL conversion errors
+- Generating specific test scenarios: New records, Duplicates, SCD1 changes (customer name updates), and SCD2 changes (region moves)
 
-### 4. Secondary Load (Day 2 - Incremental Updates)
-Processing new data and changes.
-*   **Prepare:** Run `TRUNCATE TABLE stage.delta_orders;` to clear the landing table.
-*   **Import:** Load `secondary_load.csv` into the table **`stage.delta_orders`**.
-*   **Execute:** Run `Database/03_secondary_load.sql`.
-*   **Explanation:** The script compares the new data against the existing Core data. It automatically inserts new orders, updates corrected names, and versions old addresses.
+### SQL Transformation Logic
+The `load_secondary_data.sql` script implements robust logic to handle changes:
 
----
+**SCD Type 1 (Customers):**
+- Updates customer names in place if they changed in the source
 
-## Power BI Insights
+**SCD Type 2 (Addresses):**
+1. Identifies if a customer moved to a new region
+2. Closes the old record by setting `valid_to` to the day before the new record starts
+3. **Logic for Date Overlaps:** Includes a CASE statement to handle edge cases where new record dates conflict with existing history
+4. Inserts the new active record with `is_current = TRUE`
 
-The Power BI dashboard is connected to the `core` tables. Here are the key findings based on the data:
+**Data Quality & Cleaning:**
+- **Ship Date Repair:** Uses `GREATEST(ship_date, order_date)` to fix logical errors
+- **Deduplication:** Uses `ON CONFLICT` and `NOT EXISTS` clauses to ensure idempotency
 
-*(Insert a screenshot of your dashboard here if available)*
+## 3. Power BI Report & Analysis
 
-1.  **Sales Performance:**
-    *   The **Technology** category generates the highest revenue, while Furniture has the lowest profit margins due to high operational costs.
-2.  **Regional Analysis:**
-    *   The **West Region** performs best in terms of sales volume.
-    *   Shipping delays are most frequent in the South Region, which affects customer satisfaction.
-3.  **Profitability:**
-    *   Discounts higher than 20% generally result in negative profit, suggesting a need to revise the discounting strategy.
+The report connects to the Mart Layer using Import Mode for better performance and DAX capabilities.
 
----
+### Data Modeling & DAX
 
-## Repository Structure
+**Date Table:** Created a dedicated Calendar table using DAX to support Time Intelligence functions.
 
-*   **Database/**: SQL scripts for schema creation and stored procedures.
-*   **notebooks/**: Python scripts for data preparation and splitting.
-*   **Dashboard/**: Power BI project files.
-*   **src/**: Additional source code and utilities.
+**Key Measures Implemented:**
+- **SUM vs SUMX:** Demonstrated the difference between simple aggregation and iterative calculations
+- **Time Intelligence:** Created Sales YoY % (Year-over-Year growth) and Sales YTD (Year-to-Date)
+- **Context Manipulation:** Used `ALL()` to calculate % of Total Sales
+
+### Dashboard Pages
+
+#### 1. Sales Overview
+- **Visuals:** KPI Cards, Trend Line, and Map
+- **Key Feature:** The Map uses historical data from `fact_sales`. If a customer moved regions, their old sales correctly remain attributed to the original region
+
+#### 2. Product Performance
+- **Visuals:** Decomposition Tree (AI visual) and Matrix with Data Bars
+- **Insight:** Technology drives the most revenue. Furniture has high volume but critically low profit margins (needs logistics investigation)
+
+#### 3. Customer Insights
+- **Visuals:** Scatter Plot and Histogram
+- **Scatter Plot Analysis:** Shows correlation between Sales and Profit. Identified "Unprofitable Customers" cluster (high sales, negative profit)
+- **Histogram Analysis:** Shows most orders are small value (<$500), indicating a mass-market business model
+
+## How to Run
+
+### 1. Generate Data:
+```bash
+# Run the Jupyter notebook to generate test data
+jupyter notebook notebooks/dataset_split.ipynb
+```
+This creates `initial_load.csv` and `secondary_load.csv` in `data/raw/`
+
+### 2. Setup Database:
+Execute SQL scripts in order:
+```
+-- 1. Create schemas and tables
+database/scripts/create_schemas.sql
+
+-- 2. Import initial data
+-- First, import initial_load.csv into stage.raw_orders using your SQL client
+-- Then run:
+database/scripts/load_initial_data.sql
+
+-- 3. Import secondary data
+-- Truncate stage.delta_orders and import secondary_load.csv
+-- Then run:
+database/scripts/load_secondary_data.sql
+
+-- 4. Create mart views
+database/scripts/create_mart.sql
+```
+
