@@ -1,4 +1,4 @@
-# 4. Detailed Analysis of DAX Measures and Their Impact
+# Detailed Analysis of DAX Measures and Their Impact
 
 During the report development, I opted against using standard implicit measures (auto-aggregation) in favor of explicit DAX calculations. This approach allowed for the implementation of complex business logic and the fulfillment of the assignment's technical requirements.
 
