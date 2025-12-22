@@ -1,4 +1,4 @@
-Here is the professional English translation of your DAX analysis section.
+
 
 ---
 
