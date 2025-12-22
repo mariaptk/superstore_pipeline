@@ -1,96 +1,77 @@
-# Part 1. Analytics Approach (Data Modeling Method)
+Here is the professional English translation of your DAX analysis section.
 
-## How I Built the Analytics
+---
 
-First, I uploaded the data according to the requirements for the task.
+# 4. Detailed Analysis of DAX Measures and Their Impact
 
-**Star Schema:**
-- All the hard work with data was done in SQL (Mart layer)
-- In Power BI, I loaded ready-to-use fact table (fact_sales) and dimension tables (dim_products, dim_customers)
-- This made the report fast and simple
+During the report development, I opted against using standard implicit measures (auto-aggregation) in favor of explicit DAX calculations. This approach allowed for the implementation of complex business logic and the fulfillment of the assignment's technical requirements.
 
-**Point-in-Time Logic (SCD2):**
-- The special feature: sales connect to the region where the customer lived at purchase time
-- Not where they live now
-- This makes historical data accurate
+Below is a description of each measure created.
 
-**Calendar Table:**
-- I created a separate date table using DAX
-- This allows correct time comparisons (like last year vs this year)
+## Group 1: Basic Aggregations and Iterators
 
-# Part 2. DAX Measures
+### 1. `Total Sales`
+*   `SUM('mart fact_sales'[sales])`
+*   **Description:** Basic aggregation. Sums the sales column within the current filter context.
+*   **Dashboard Result:** Shows the company's total turnover — **17.65M**.
 
-I didn't use simple field dragging. I created special measures for flexibility.
+### 2. `Total Sales (Iterative)`
+*   `SUMX('mart fact_sales', 'mart fact_sales'[sales])`
+*   **Description:** Unlike `SUM`, the `SUMX` function iterates through the table row by row, evaluates the expression for each row, and then sums the results. It was created to demonstrate the difference between **SUM vs. SUMX**.
+*   **Context:** In this dataset, the result matches `Total Sales`. However, in a real-world scenario (e.g., if the database had only `Price` and `Quantity` columns but no `Sales` column), using `SUM` would be impossible, and `SUMX` would be the only solution for row-by-row multiplication (`Price * Quantity`).
 
-## 1. Basic Metrics: SUM vs SUMX
-**Measure:** Total Sales = SUM(fact_sales[sales])
-**Measure:** Total Sales (Iterative) = SUMX(fact_sales, fact_sales[sales])
+### 3. `Total Profit`
+*   `SUM('mart fact_sales'[profit])`
+*   **Description:** Shows the company's net profit.
+*   **Dashboard Result:** **2.41M**.
 
-- SUM is fast - main measure
-- SUMX was required in the task. It goes row by row
-- In real life, you use it when you need to calculate something for each row before adding
+### 4. `Profit Margin %`
+*   `DIVIDE([Total Profit], [Total Sales], 0)`
+*   **Description:** Created to evaluate sales efficiency. It shows how many cents of profit each dollar of revenue generates.
+*   **Insight:** This specific measure helped identify the issue in the **Furniture** category, where despite high revenue, the margin is only **3.43%** (compared to ~18% in other categories).
+    *   *(Note: Profit Margin is a financial metric indicating the percentage of revenue that remains as profit after deducting direct costs).*
 
-## 2. Relative Metrics (Profit Margin)
-**Measure:** Profit Margin % = DIVIDE([Total Profit], [Total Sales], 0)
+---
 
-- Big profit numbers can be misleading
-- Margin shows real business efficiency
-- How many cents of profit we get from each dollar of sales
+## Group 2: Time Intelligence
 
-## 3. Time Analysis
-**Measures:** Sales YTD (year-to-date), Sales SPLY (same period last year)
-**Measure:** Sales YoY % (year-over-year growth)
+These measures were created for dynamic analysis, as static figures do not provide insight into trends. A dedicated `Calendar` table was created to support them.
 
-- Business needs to know: "Are we growing or falling?"
-- Example: 0.17% growth (in your screenshot) shows stagnation
+### 5. `Sales SPLY` (Same Period Last Year)
+*   `CALCULATE([Total Sales], SAMEPERIODLASTYEAR('Calendar'[Date]))`
+*   **Technical Rationale:** The `CALCULATE` function modifies the filter context, while `SAMEPERIODLASTYEAR` shifts the current date range back by exactly one year.
+*   **Purpose:** This measure was created to establish a baseline for comparison (Benchmarking). It allows plotting results for the current year and the past year on the same chart.
+*   **Dashboard Result:** Visualized on the "Sales Trend" chart (dark blue line), showing seasonal fluctuations compared to the previous cycle.
 
-## 4. Context Manipulation
-**Measure:** % of Total Sales = DIVIDE([Total Sales], CALCULATE([Total Sales], ALL(fact_sales)))
+### 6. `Sales YTD` (Year-to-Date)
+*   `TOTALYTD([Total Sales], 'Calendar'[Date])`
+*   **Description:** Calculates the cumulative total from January 1st to the current date within the context.
+*   **Purpose:** A standard financial metric. It allows management to see the progress of the annual plan on any given day of the year.
 
-- Shows category contribution to total
-- Ignores filters
-- Example: Technology gives 35% of all company revenue
+### 7. `Sales YoY %` (Year-over-Year Growth)
+*   ```dax
+    VAR CurrentSales = [Total Sales]
+    VAR LastYearSales = [Sales SPLY]
+    RETURN
+    DIVIDE(CurrentSales - LastYearSales, LastYearSales, 0)
+    ```
+*   **Technical Rationale:** Uses variables (`VAR`) for code readability and optimization (measures are not recalculated twice). It calculates relative growth.
+*   **Purpose:** The main KPI for business health.
+*   **Dashboard Result:** The measure value is **0.04%**. This is a critical finding: **despite millions in turnover, the company is stagnating (growth is practically non-existent compared to the last year).**
 
-# Part 3. Detailed Analysis Results
+---
 
-## Page 1: Sales Overview
+## Group 3: Context Manipulation
 
-**Seasonality:**
-- Sales peaks: September, November, December (holidays, Black Friday)
-- Low sales: January, February
-- **Recommendation:** Boost marketing in Q1
-
-**Geography (SCD2):**
-- Map shows correct historical data
-- If customer moved from California to Texas, old sales stay in California
-- West and East coasts are main markets
-
-## Page 2: Product Performance
-
-**Leaders:**
-- Technology category: $6.2M revenue, 18.65% margin ("cash cow")
-
-**Problem (Insight!):**
-- Furniture category: $5.7M revenue, but only 3.43% margin
-- Tables subcategory is the problem
-- **Conclusion:** Delivery costs eat profit. Need to review prices or stop unprofitable models
-
-## Page 3: Customer Insights
-
-**Scatter Plot:**
-- Clear rule: more sales = more profit
-- **Anomaly:** Some customers have big sales (over $100k) but negative profit (loss up to $15k)
-- **Conclusion:** These are "toxic" VIP customers. They buy with big discounts or return often. Need to change terms.
-
-**Histogram:**
-- Most orders are small (under $500)
-- Orders over $1500 are rare
-- **Conclusion:** We are in mass market. Need to increase purchase frequency or raise average order to at least $700
-
-# Summary
-
-"In Power BI, I focused on finding business insights, not just showing tables.
-- Used SCD Type 2 for historically correct sales map
-- Found furniture margin problem
-- Discovered unprofitable customers through Scatter Plot
-- Built with Star Schema and advanced DAX measures"
+### 8. `% of Total Sales`
+*   ```dax
+    DIVIDE(
+        [Total Sales],
+        CALCULATE([Total Sales], ALL('mart fact_sales')),
+        0
+    )
+    ```
+*   **Technical Rationale:**
+    *   `ALL('mart fact_sales')` — removes absolutely all filters from the fact table.
+    *   `CALCULATE` — computes the total sales of the entire store (the "Denominator"), ignoring specific category selections in the visualization.
+*   **Insight:** This measure revealed in the Product Matrix that the **Technology** and **Furniture** categories have nearly identical revenue shares (**~33-35%**), yet drastically different profit contributions. Without using `ALL`, we could not correctly calculate the share of a specific row relative to the grand total within the matrix.
