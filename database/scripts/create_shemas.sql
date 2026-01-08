@@ -54,7 +54,7 @@ CREATE TABLE stage.delta_orders (
     profit DECIMAL(10,2),
     valid_from VARCHAR(20),          -- Version start date
     valid_to VARCHAR(20),            -- Version end date
-    previous_region VARCHAR(50),     -- Previous region value
+    previous_region VARCHAR(50),     -- Previous region
     is_new_version BOOLEAN,          -- Flag for new version
     scd2_attribute_changed VARCHAR(50) -- Name of changed attribute
 );

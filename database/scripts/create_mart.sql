@@ -1,4 +1,6 @@
 -- Create schema for reporting
+DROP SCHEMA mart;
+
 CREATE SCHEMA IF NOT EXISTS mart;
 
 -- Simple list for filtering by Category -> Sub-Category -> Product
