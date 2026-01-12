@@ -111,7 +111,7 @@ BEGIN
         -- Data cleaning: ship_date cannot be earlier than order_date
         GREATEST(s.ship_date::DATE, s.order_date::DATE),
         s.ship_mode,
-        new_batch_id -- Use the calculated batch ID (3, 4, 5...)
+        new_batch_id -- Use the calculated batch ID
     FROM stage.delta_orders s
     JOIN core.customers c ON s.customer_id = c.customer_number
     ON CONFLICT (order_number) DO NOTHING;
