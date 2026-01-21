@@ -6,9 +6,21 @@ DO $$
 DECLARE
     -- Variable to store the new batch number
     new_batch_id INTEGER;
-    rows_affected INTEGER;
+
+    -- Temporary counter for intermediate steps
+    v_cnt INTEGER := 0;
+
+    -- Variables for statistics tracking
+    v_total_stage_rows INTEGER := 0;
+    v_rows_inserted INTEGER := 0;
+    v_rows_updated INTEGER := 0;
+    v_rows_skipped INTEGER := 0;
+
 BEGIN
-    -- 1. Calculate new batch_id (Max existing ID + 1)
+    -- 1. Preparation: Count total rows in the staging table
+    SELECT COUNT(*) INTO v_total_stage_rows FROM stage.delta_orders;
+
+    -- Calculate new batch_id (Max existing ID + 1)
     -- If table is empty, start with 2 (since 1 was initial)
     SELECT COALESCE(MAX(batch_id), 1) + 1 INTO new_batch_id FROM core.orders;
     
@@ -18,10 +30,7 @@ BEGIN
     INSERT INTO core.load_audit (load_type, source_table, rows_processed, start_time, status)
     VALUES ('SECONDARY', 'stage.delta_orders', 0, CURRENT_TIMESTAMP, 'STARTED');
 
-
     -- 2. Customers (SCD Type 1 - Update names/segments)
-
-    
     -- Update existing customers if name or segment changed
     UPDATE core.customers c
     SET
@@ -30,6 +39,9 @@ BEGIN
     FROM stage.delta_orders s
     WHERE c.customer_number = s.customer_id
       AND (c.customer_name != s.customer_name OR c.segment != s.segment);
+
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    v_rows_updated := v_rows_updated + v_cnt; -- Add to total updates
 
     -- Insert new customers
     INSERT INTO core.customers (customer_number, customer_name, segment)
@@ -40,9 +52,7 @@ BEGIN
     FROM stage.delta_orders
     ON CONFLICT (customer_number) DO NOTHING;
 
-
     -- 3. Addresses (SCD Type 2 - History Tracking)
-
     
     -- Step A: Close old address versions
     -- We use CASE to prevent date overlaps (if valid_from of new record <= old record)
@@ -60,7 +70,17 @@ BEGIN
     JOIN core.customers c ON s.customer_id = c.customer_number
     WHERE a.customer_id = c.customer_id
       AND s.is_new_version = TRUE   -- Process only records marked as new version
-      AND a.is_current = TRUE;      -- Only update currently active addresses
+      AND a.is_current = TRUE      -- Only update currently active addresses
+        AND (                                   -- Ensure data is actually different
+          a.region      IS DISTINCT FROM s.region OR
+          a.state       IS DISTINCT FROM s.state OR
+          a.city        IS DISTINCT FROM s.city OR
+          a.postal_code IS DISTINCT FROM s.postal_code OR
+          a.country     IS DISTINCT FROM s.country
+      );
+
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    v_rows_updated := v_rows_updated + v_cnt; -- Add to total updates
 
     -- Step B: Insert new address versions
     INSERT INTO core.addresses (customer_id, country, city, state, postal_code, region, valid_from, is_current)
@@ -83,14 +103,16 @@ BEGIN
         -- Deduplication: do not insert if this active address already exists
         SELECT 1 FROM core.addresses a 
         WHERE a.customer_id = c.customer_id 
-          AND a.region = s.region 
-          AND a.city = s.city 
           AND a.is_current = TRUE
+          AND a.region      IS NOT DISTINCT FROM s.region
+          AND a.state       IS NOT DISTINCT FROM s.state
+          AND a.city        IS NOT DISTINCT FROM s.city
+          AND a.postal_code IS NOT DISTINCT FROM s.postal_code
     );
-
 
     -- 4. Products (New items)
 
+    -- Insert new products
     INSERT INTO core.products (product_number, product_name, category, sub_category)
     SELECT DISTINCT
         product_id,
@@ -100,9 +122,8 @@ BEGIN
     FROM stage.delta_orders
     ON CONFLICT (product_number) DO NOTHING;
 
-
     -- 5. Orders
-
+    -- Insert Orders (Target Table)
     INSERT INTO core.orders (customer_id, order_number, order_date, ship_date, ship_mode, batch_id)
     SELECT DISTINCT
         c.customer_id,
@@ -117,11 +138,10 @@ BEGIN
     ON CONFLICT (order_number) DO NOTHING;
 
     -- Get number of inserted rows for the log
-    GET DIAGNOSTICS rows_affected = ROW_COUNT;
-
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
 
     -- 6. Order Details
-
+    -- Insert Order Details
     INSERT INTO core.order_details (order_id, product_id, sales, quantity, discount, profit)
     SELECT
         o.order_id,
@@ -139,17 +159,22 @@ BEGIN
         WHERE od.order_id = o.order_id AND od.product_id = p.product_id
     );
 
+    -- 7. Calculate Skipped Rows (Duplicates)
+    -- If total rows = 100 and we inserted 80 orders, then 20 were skipped duplicates
+        v_rows_skipped := v_total_stage_rows - v_rows_inserted;
 
-    -- 7. Finalize Audit
-
+    -- 8. Finalize Audit
     UPDATE core.load_audit
     SET
-        rows_processed = rows_affected,
+        rows_processed = v_rows_inserted, -- Main metric
+        rows_inserted  = v_rows_inserted, -- Detail
+        rows_updated   = v_rows_updated,  -- Detail (SCD1 updates + SCD2 closing)
+        rows_skipped   = v_rows_skipped,  -- Detail (Duplicates)
         end_time = CURRENT_TIMESTAMP,
         status = 'COMPLETED'
     WHERE load_type = 'SECONDARY' AND status = 'STARTED' AND start_time >= CURRENT_TIMESTAMP - interval '1 minute';
 
-    RAISE NOTICE 'Batch % loaded successfully.', new_batch_id;
+    RAISE NOTICE 'Load Finished. Batch: %, Inserted: %, Updated: %, Skipped: %', new_batch_id, v_rows_inserted, v_rows_updated, v_rows_skipped;
 
 END $$;
 

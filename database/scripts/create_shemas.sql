@@ -29,6 +29,7 @@ CREATE TABLE stage.raw_orders (
 );
 
 -- Create stage table for secondary load
+TRUNCATE TABLE stage.delta_orders;
 DROP TABLE IF EXISTS stage.delta_orders CASCADE;
 CREATE TABLE stage.delta_orders (
     row_id INTEGER PRIMARY KEY,
@@ -145,3 +146,12 @@ CREATE TABLE IF NOT EXISTS core.load_audit (
     status VARCHAR(20) DEFAULT 'STARTED',
     error_message TEXT
 );
+
+-- Добавляем колонки для детализации
+ALTER TABLE core.load_audit
+ADD COLUMN rows_inserted INTEGER DEFAULT 0,
+ADD COLUMN rows_updated INTEGER DEFAULT 0,
+ADD COLUMN rows_skipped INTEGER DEFAULT 0;
+
+
+
